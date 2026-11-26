@@ -6,6 +6,8 @@
 
 ## 用法
 
+输入可以是 `.osu` 谱面文件，也可以直接给 `.osz` 谱面包（自动解包，转换里面的每个 `.osu`）。
+
 ```bash
 # 单个谱面，输出到同目录同名 .aff
 python3 osu2arc.py "Saikoro - far in the blue sky... (1nar) [42].osu"
@@ -15,6 +17,9 @@ python3 osu2arc.py chart.osu -o out.aff
 
 # 批量转换到目录
 python3 osu2arc.py *.osu -o aff/
+
+# 直接转 osz 谱面包，每个 .osu 输出一个 .aff
+python3 osu2arc.py "767294 saikoro - far in the blue sky.osz" -o aff/
 ```
 
 ## 转换规则

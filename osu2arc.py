@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 import argparse
 import sys
+import zipfile
 from pathlib import Path
 
 
-def parse_osu(path):
-    text = Path(path).read_text(encoding="utf-8-sig", errors="replace")
+def parse_osu(text):
     section = ""
     keys = 4
     timings = []
@@ -46,10 +46,10 @@ def parse_osu(path):
     return keys, timings, objects
 
 
-def convert(path, out, keys_expected=4):
-    keys, timings, objects = parse_osu(path)
+def convert_text(text, name, out, keys_expected=4):
+    keys, timings, objects = parse_osu(text)
     if keys != keys_expected:
-        raise SystemExit(f"{path}: {keys}K, only {keys_expected}K mania is supported")
+        raise SystemExit(f"{name}: {keys}K, only {keys_expected}K mania is supported")
     lane_width = 512.0 / keys
     lines = ["AudioOffset:0", "-"]
     for offset, bpm in timings:
@@ -69,36 +69,60 @@ def convert(path, out, keys_expected=4):
         else:
             lines.append(f"({start},{lane});")
             taps += 1
-    out = Path(out)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return taps, holds
 
 
+def read_osu(path):
+    return path.read_text(encoding="utf-8-sig", errors="replace")
+
+
+def convert_osu(src, dst, keys):
+    return convert_text(read_osu(src), src.name, dst, keys)
+
+
+def convert_osz(src, out_dir, keys):
+    results = []
+    with zipfile.ZipFile(src) as archive:
+        members = [m for m in archive.namelist()
+                   if m.lower().endswith(".osu") and not m.startswith("__MACOSX/")]
+        if not members:
+            raise SystemExit(f"{src.name}: no .osu inside")
+        for member in sorted(members):
+            text = archive.read(member).decode("utf-8-sig", errors="replace")
+            dst = out_dir / (Path(member).stem + ".aff")
+            taps, holds = convert_text(text, member, dst, keys)
+            results.append((member, dst, taps, holds))
+    return results
+
+
 def main():
     parser = argparse.ArgumentParser(
         prog="osu2arc", description="osu!mania 4K to Arcaea aff converter")
-    parser.add_argument("input", nargs="+", help=".osu file(s)")
+    parser.add_argument("input", nargs="+", help=".osu or .osz file(s)")
     parser.add_argument("-o", "--output", help="output .aff path, or a directory for several inputs")
     parser.add_argument("--keys", type=int, default=4, help="expected mania key count (default 4)")
     args = parser.parse_args()
 
     inputs = [Path(p) for p in args.input]
-    out_dir = None
-    if args.output:
-        candidate = Path(args.output)
-        if len(inputs) > 1 or candidate.is_dir() or candidate.suffix == "":
-            out_dir = candidate
-            out_dir.mkdir(parents=True, exist_ok=True)
+    forced = Path(args.output) if args.output else None
+    single_file_out = bool(forced and forced.suffix and len(inputs) == 1
+                           and inputs[0].suffix.lower() != ".osz")
 
     for src in inputs:
-        if out_dir:
-            dst = out_dir / (src.stem + ".aff")
-        elif args.output:
-            dst = Path(args.output)
+        if src.suffix.lower() == ".osz":
+            out_dir = forced if forced else src.parent
+            for member, dst, taps, holds in convert_osz(src, out_dir, args.keys):
+                print(f"{src.name}:{member}: {taps} taps, {holds} holds -> {dst}")
+            continue
+        if single_file_out:
+            dst = forced
+        elif forced:
+            dst = forced / (src.stem + ".aff")
         else:
             dst = src.with_suffix(".aff")
-        taps, holds = convert(src, dst, args.keys)
+        taps, holds = convert_osu(src, dst, args.keys)
         print(f"{src.name}: {taps} taps, {holds} holds -> {dst}")
 
 
